@@ -178,6 +178,7 @@ crop.addEventListener('pointermove', e => {
     renderCrop();
   }
   if (selected.letter && next && crosses.has(next.r + ',' + next.c)) next = null;
+  if (selected.x && next && bigs.has(next.r + ',' + next.c)) next = null;
   if (erasing && next) eraseCell(next);
   if (holding && (!next || next.c !== holding.cell.c || next.r !== holding.cell.r)) cancelHold();
   crop.style.cursor = next ? 'pointer' : 'default';
@@ -253,7 +254,7 @@ let erasing = false;
 let paintStart = null, lastPaint = null, painted = false;
 function paintCell(cell) {
   const key = cell.r + ',' + cell.c;
-  if (selected.x) { crosses.add(key); marks.delete(key); return; }
+  if (selected.x) { if (!bigs.has(key)) { crosses.add(key); marks.delete(key); } return; }
   if (crosses.has(key)) return;
   const list = marks.get(key) || [];
   if (!list.some(m => m.letter === selected.letter)) { list.push(selected); marks.set(key, list); }
@@ -277,6 +278,23 @@ crop.addEventListener('pointerdown', e => {
   eraseCell(cell);
 });
 
+
+// Right click (or right-drag) places an X, except where a big letter already stands.
+let rightPaint = false;
+function rightX(e) {
+  if (!grid || !app.classList.contains('started')) return;
+  const cell = cellAt(e);
+  if (!cell) return;
+  const key = cell.r + ',' + cell.c;
+  if (bigs.has(key) || crosses.has(key)) return;
+  crosses.add(key); marks.delete(key);
+  renderCrop();
+}
+crop.addEventListener('contextmenu', e => e.preventDefault());
+crop.addEventListener('pointerdown', e => { if (e.button === 2) { rightPaint = true; rightX(e); } });
+crop.addEventListener('pointermove', e => { if (rightPaint && (e.buttons & 2)) rightX(e); });
+window.addEventListener('pointerup', () => { rightPaint = false; });
+crop.addEventListener('pointerleave', () => { rightPaint = false; });
 // Click toggles the selected character's letter in the clicked cell.
 crop.addEventListener('click', e => {
   if (longFired) { longFired = false; return; }
@@ -287,6 +305,7 @@ crop.addEventListener('click', e => {
   if (!cell) return;
   const key = cell.r + ',' + cell.c;
   if (selected.x) {
+    if (bigs.has(key)) return;
     if (crosses.has(key)) crosses.delete(key); else { crosses.add(key); marks.delete(key); }
     renderCrop(); return;
   }
