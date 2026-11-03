@@ -513,6 +513,8 @@ function renderCrop() {
       const [r, c] = key.split(',').map(Number);
       const cx = grid.xs[c] - rect.x0, cy = grid.ys[r] - rect.y0, cw = grid.xs[c + 1] - grid.xs[c], ch = grid.ys[r + 1] - grid.ys[r];
       const fs = Math.min(cw, ch) * 0.75;
+      cctx.fillStyle = `hsla(${m.hue}, 85%, 60%, 0.3)`;
+      cctx.fillRect(cx, cy, cw, ch);
       cctx.font = `700 ${fs}px "Segoe UI", sans-serif`; cctx.textAlign = 'center'; cctx.textBaseline = 'alphabetic';
       cctx.lineWidth = fs * 0.08; cctx.strokeStyle = 'rgba(0,0,0,.75)'; cctx.lineJoin = 'round';
       const tm = cctx.measureText(m.letter), ty = cy + ch / 2 + (tm.actualBoundingBoxAscent - tm.actualBoundingBoxDescent) / 2;
