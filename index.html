@@ -159,6 +159,13 @@ function toggleTool(b) {
 }
 for (const b of document.querySelectorAll('.tool:not(.action)')) b.addEventListener('click', () => toggleTool(b));
 
+// Pressing a character key selects the matching character button.
+document.addEventListener('keydown', e => {
+  if (!app.classList.contains('started') || e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.key.length !== 1) return;
+  const b = [...document.querySelectorAll('.tool.letter')].find(x => x.textContent === e.key.toUpperCase());
+  if (b && !b.disabled) toggleTool(b);
+});
+
 let cropScale = 1;        // canvas pixels per image pixel of the right picture (keeps text crisp when enlarged)
 
 function cellAt(e) {
@@ -349,9 +356,69 @@ document.querySelector('[data-tool="clear"]').addEventListener('click', () => {
   renderCrop();
 });
 
-function load(im) {
+// Persistence: images (downscaled JPEG) in one key, the small state in another.
+const IMG_KEY = 'murdoku.images', STATE_KEY = 'murdoku.state';
+const encCache = new WeakMap();
+function encode(im) {
+  let e = encCache.get(im);
+  if (!e) {
+    const f = Math.min(1, 1600 / Math.max(im.width, im.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(im.width * f); c.height = Math.round(im.height * f);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    e = { f, url: c.toDataURL('image/jpeg', 0.85) };
+    encCache.set(im, e);
+  }
+  return e;
+}
+function saveImages() {
+  try {
+    localStorage.setItem(IMG_KEY, JSON.stringify({ img: encode(img).url, chars: charImg ? encode(charImg).url : null }));
+  } catch { localStorage.removeItem(IMG_KEY); }
+  lastState = '';
+  scheduleSave();
+}
+let saveTimer = 0, lastState = '';
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveState, 300); }
+function saveState() {
+  if (!img || !rect) return;
+  const f = encode(img).f, fc = charImg ? encode(charImg).f : f;
+  const sc = (r, k) => r && { x0: r.x0 * k, y0: r.y0 * k, x1: r.x1 * k, y1: r.y1 * k };
+  const st = JSON.stringify({
+    started: app.classList.contains('started'),
+    rect: sc(rect, f), av: sc(av, fc),
+    grid: grid && { xs: grid.xs.map(v => v * f), ys: grid.ys.map(v => v * f) },
+    marks: [...marks], crosses: [...crosses], bigs: [...bigs]
+  });
+  if (st === lastState) return;
+  lastState = st;
+  try { localStorage.setItem(STATE_KEY, st); } catch {}
+}
+function loadUrl(url) {
+  return new Promise((ok, fail) => { const im = new Image(); im.onload = () => { encCache.set(im, { f: 1, url }); ok(im); }; im.onerror = fail; im.src = url; });
+}
+function restore() {
+  let im, st;
+  try { im = JSON.parse(localStorage.getItem(IMG_KEY)); st = JSON.parse(localStorage.getItem(STATE_KEY)); } catch { return; }
+  if (!im || !im.img || !st || !st.rect) return;
+  Promise.all([loadUrl(im.img), im.chars ? loadUrl(im.chars) : null]).then(([i, ci]) => {
+    load(i, st, ci);
+    if (!st.started) return;
+    app.classList.add('started');
+    buildLetters(grid ? Math.min(grid.xs.length, grid.ys.length) - 1 : 0);
+    for (const [k, v] of st.marks) marks.set(k, v);
+    for (const k of st.crosses) crosses.add(k);
+    for (const [k, v] of st.bigs) bigs.set(k, v);
+    updateLetterButtons();
+    render();
+    fitStarted();
+  }).catch(() => {});
+}
+
+function load(im, st, ci) {
   img = im;
   charImg = null; src2.hidden = true; $('origPane').classList.remove('two');
+  if (ci) setChars(ci);
   app.classList.remove('started'); fitStarted();
   msg.textContent = '';
   scale = Math.min(1, 800 / Math.max(im.width, im.height));
@@ -365,9 +432,16 @@ function load(im) {
   app.classList.remove('empty');
   app.classList.add('done');
   rect = null; av = null;
+  if (st) {
+    rect = st.rect; grid = st.grid; av = st.av;
+    $('info').innerHTML = grid ? `<b>${grid.ys.length - 1}</b> rows × <b>${grid.xs.length - 1}</b> columns` : 'No grid pattern found';
+    render();
+    return;
+  }
   analyze([0, 0, im.width, im.height]);
   av = detectAvatars();
   render();
+  saveImages();
 }
 
 // Finds the non-background area to the left of the grid (the avatar pictures).
@@ -452,6 +526,7 @@ let holding = null;       // {cell, sel, start, raf} while a long press is in pr
 let longFired = false;
 
 function renderCrop() {
+  scheduleSave();
   const w = Math.max(1, Math.round(rect.x1 - rect.x0)), h = Math.max(1, Math.round(rect.y1 - rect.y0));
   // Render at the displayed size so letters stay sharp; all drawing below uses image pixels.
   const shown = parseFloat(crop.style.width) || w;
@@ -678,15 +753,20 @@ src2.addEventListener('pointermove', e => {
 src2.addEventListener('pointerup', () => { drag2 = null; });
 src2.addEventListener('pointercancel', () => { drag2 = null; });
 
+function setChars(im) {
+  charImg = im;
+  src2.width = im.width; src2.height = im.height;
+  src2.hidden = false; $('origPane').classList.add('two');
+}
+
 $('charFile').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f || !img) return;
   openFile(f, im => {
-    charImg = im;
-    src2.width = im.width; src2.height = im.height;
-    src2.hidden = false; $('origPane').classList.add('two');
+    setChars(im);
     av = { x0: 0, y0: 0, x1: im.width, y1: im.height };
     render();
+    saveImages();
   });
   e.target.value = '';
 });
@@ -867,6 +947,7 @@ function findChain(full, from, to) {
   }
   return bestChain && bestChain.length >= 3 && bestFound >= 3 ? bestChain.map(p => p + from) : null;
 }
+restore();
 </script>
 </body>
 </html>
