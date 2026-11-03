@@ -279,19 +279,21 @@ crop.addEventListener('pointerdown', e => {
 });
 
 
-// Right click (or right-drag) places an X, except where a big letter already stands.
-let rightPaint = false;
-function rightX(e) {
+// Right click (or right-drag) places an X, except where a big letter already stands; starting on an X removes X marks instead.
+let rightPaint = false, rightRemove = false;
+function rightX(e, first) {
   if (!grid || !app.classList.contains('started')) return;
   const cell = cellAt(e);
   if (!cell) return;
   const key = cell.r + ',' + cell.c;
+  if (first) rightRemove = crosses.has(key);
+  if (rightRemove) { if (crosses.delete(key)) renderCrop(); return; }
   if (bigs.has(key) || crosses.has(key)) return;
   crosses.add(key); marks.delete(key);
   renderCrop();
 }
 crop.addEventListener('contextmenu', e => e.preventDefault());
-crop.addEventListener('pointerdown', e => { if (e.button === 2) { rightPaint = true; rightX(e); } });
+crop.addEventListener('pointerdown', e => { if (e.button === 2) { rightPaint = true; rightX(e, true); } });
 crop.addEventListener('pointermove', e => { if (rightPaint && (e.buttons & 2)) rightX(e); });
 window.addEventListener('pointerup', () => { rightPaint = false; });
 crop.addEventListener('pointerleave', () => { rightPaint = false; });
