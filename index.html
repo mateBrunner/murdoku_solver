@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Murdoku Solver</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    color: #fff;
+    background: radial-gradient(circle at 20% 20%, #5b2a86 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, #0f7b9c 0%, transparent 50%),
+                linear-gradient(135deg, #1a1033, #0c1e3a);
+    background-attachment: fixed;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  #app { width: 100%; max-width: 1300px; display: flex; gap: 32px; align-items: center; justify-content: center; }
+  #app.empty { flex-direction: column; }
+  .pane { flex: 1 1 0; min-width: 0; display: none; flex-direction: column; align-items: center; gap: 14px; }
+  #app.done .pane { display: flex; }
+  .pane canvas { max-width: 100%; max-height: 72vh; border-radius: 14px; box-shadow: 0 20px 50px rgba(0,0,0,.45); background: #0003; }
+  #src, #src2 { touch-action: none; }
+  #origPane.two canvas { max-height: 34vh; }
+  .btn2 { cursor: pointer; color: #fff; font-weight: 600; padding: 8px 20px; border-radius: 999px; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35); }
+  .btn2:hover { background: rgba(255,255,255,.3); }
+  #app.started .btn2, #app.started #charLabel, #app.started #info { display: none; }
+  .pane.side { flex: 0.6 1 0; }
+  .badge { background: rgba(255,255,255,.14); backdrop-filter: blur(8px); border-radius: 999px; padding: 8px 20px; font-size: 1.05rem; }
+  .badge b { font-size: 1.25rem; }
+  .btn {
+    cursor: pointer; border: 0; color: #fff; font-size: 1.15rem; font-weight: 600;
+    padding: 16px 36px; border-radius: 999px;
+    background: linear-gradient(135deg, #ff7a59, #e8369a);
+    box-shadow: 0 10px 30px rgba(232,54,154,.45);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(232,54,154,.6); }
+  #app.done .btn { padding: 10px 24px; font-size: .95rem; position: fixed; top: 16px; left: 16px; }
+  .toolbox { display: none; flex: 0 0 210px; height: auto; align-self: center; flex-direction: row; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 10px; padding: 14px 8px; border-radius: 18px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.3); backdrop-filter: blur(8px); box-shadow: 0 20px 50px rgba(0,0,0,.35); }
+  #app.started .toolbox { display: flex; }
+  .tool { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; background: rgba(255,255,255,.15); border: 2px solid transparent; border-radius: 10px; padding: 0; }
+  .tool:hover { background: rgba(255,255,255,.28); }
+  .letters { flex: 0 0 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 24px; }
+  .tool.letter { font-size: 1.3rem; font-weight: 700; color: var(--c); border-color: var(--c); }
+  .tool.letter:hover { background: rgba(255,255,255,.28); }
+  .tool.letter.active { background: var(--bg); border-color: var(--c); box-shadow: 0 0 0 3px #fff, 0 0 18px var(--c); }
+  .tool.letter.active:hover { background: var(--bg); }
+  .tool:disabled { opacity: .3; cursor: not-allowed; }
+  .tool.active { background: rgba(255,255,255,.3); border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 18px rgba(255,255,255,.7); }
+  .start { display: none; position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); cursor: pointer; border: 0; color: #fff; font-size: 1.6rem; font-weight: 700; letter-spacing: .05em; padding: 18px 80px; border-radius: 999px; background: linear-gradient(135deg, #3ddc84, #1a9f55); box-shadow: 0 10px 30px rgba(61,220,132,.5); }
+  .start:hover { filter: brightness(1.1); }
+  #app.done:not(.started) ~ .start { display: block; }
+  #app.started #origPane { display: none; }
+  #app.started { max-width: none; gap: 20px; }
+  #app.started .pane canvas { max-width: none; max-height: none; }
+  #app.started .pane.side { flex: 1 1 0; }
+  #msg { position: fixed; bottom: 100px; left: 0; right: 0; text-align: center; opacity: .85; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<div id="app" class="empty">
+  <label class="btn" id="upload">Upload image<input type="file" id="file" accept="image/*,application/pdf,.pdf"></label>
+  <div class="pane side"><canvas id="avatars"></canvas><div class="badge" id="charLabel">Characters</div><label class="btn2" id="charBtn">Upload characters<input type="file" id="charFile" accept="image/*,application/pdf,.pdf"></label></div>
+  <div class="pane" id="origPane"><canvas id="src"></canvas><canvas id="src2" hidden></canvas><div class="badge">Drag the rectangles or their handles to adjust</div></div>
+  <div class="toolbox" id="toolbox">
+    <button class="tool" data-tool="eraser" title="Eraser" aria-label="Eraser"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9l-5-5a2 2 0 0 1 0-2.8l8.2-8.2a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8L12 20"/><path d="M8 11l6 6"/></svg></button>
+    <button class="tool" data-tool="x" title="Mark X" aria-label="Mark X"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+    <button class="tool action" data-tool="clear" title="Clear" aria-label="Clear"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6"/></svg></button>
+  <div class="letters" id="letters"></div>
+  </div>
+ <div class="pane"><canvas id="crop"></canvas><div class="badge" id="info"></div></div>
+</div>
+<button class="start" id="start">Start</button>
+<div id="msg"></div>
+
+<script src="pdf.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const app = $('app'), msg = $('msg'), src = $('src'), crop = $('crop');
+const sctx = src.getContext('2d'), cctx = crop.getContext('2d');
+const avc = $('avatars'), actx = avc.getContext('2d');
+
+let img = null, scale = 1, edges = null;
+let av = null;            // characters crop rectangle, in pixels of charImg (or img)
+let charImg = null;       // optional separately uploaded characters image
+const src2 = $('src2'), s2ctx = src2.getContext('2d');
+let rect = null;          // {x0,y0,x1,y1} in original image pixels
+let grid = null;          // detected line positions in original image pixels
+let drag = null;          // {mode, startX, startY, orig}
+
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  openFile(f, load);
+  e.target.value = '';
+});
+
+// Opens an image or a single-page PDF (first page is rendered) and hands back an Image.
+function openFile(f, ok) {
+  const fail = () => { msg.textContent = 'Could not read that file.'; };
+  const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  const fromUrl = url => {
+    const im = new Image();
+    im.onload = () => ok(im);
+    im.onerror = fail;
+    im.src = url;
+  };
+  if (!isPdf) return fromUrl(URL.createObjectURL(f));
+  if (!window.pdfjsLib) return fail();
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+  f.arrayBuffer()
+    .then(buf => pdfjsLib.getDocument({ data: buf }).promise)
+    .then(doc => doc.getPage(1))
+    .then(page => {
+      const v1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: Math.min(4, 2400 / Math.max(v1.width, v1.height)) });
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      const c = cv.getContext('2d');
+      c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height);
+      return page.render({ canvasContext: c, viewport: vp }).promise.then(() => fromUrl(cv.toDataURL('image/png')));
+    })
+    .catch(fail);
+}
+
+$('start').addEventListener('click', () => {
+  app.classList.add('started'); msg.textContent = '';
+  buildLetters(grid ? Math.min(grid.xs.length, grid.ys.length) - 1 : 0);
+  render();
+  fitStarted();
+});
+
+// After Start, scale the characters and grid pictures up to fill their panes (aspect ratio kept).
+function fitStarted() {
+  for (const cv of [avc, crop]) {
+    if (!app.classList.contains('started')) { cv.style.width = cv.style.height = ''; continue; }
+    const lw = cv === crop ? Math.max(1, Math.round(rect.x1 - rect.x0)) : cv.width;
+    const lh = cv === crop ? Math.max(1, Math.round(rect.y1 - rect.y0)) : cv.height;
+    const s = Math.min(cv.parentElement.clientWidth / lw, window.innerHeight * 0.92 / lh);
+    cv.style.width = Math.floor(lw * s) + 'px';
+    cv.style.height = Math.floor(lh * s) + 'px';
+  }
+  if (img && rect) renderCrop();
+}
+window.addEventListener('resize', fitStarted);
+
+function toggleTool(b) {
+  const was = b.classList.contains('active');
+  document.querySelectorAll('.tool:not(.action)').forEach(t => t.classList.remove('active'));
+  if (!was) b.classList.add('active');
+  selected = was ? null : b.dataset.hue !== undefined ? { letter: b.textContent, hue: +b.dataset.hue } : b.dataset.tool === 'x' ? { x: true, hue: null } : b.dataset.tool === 'eraser' ? { eraser: true, hue: null } : null;
+  hover = null;
+  crop.style.cursor = 'default';
+  if (img) renderCrop();
+}
+for (const b of document.querySelectorAll('.tool:not(.action)')) b.addEventListener('click', () => toggleTool(b));
+
+let cropScale = 1;        // canvas pixels per image pixel of the right picture (keeps text crisp when enlarged)
+
+function cellAt(e) {
+  const [px, py] = pointer(e, crop), x = px / cropScale + rect.x0, y = py / cropScale + rect.y0;
+  const c = grid.xs.findIndex((v, i) => i < grid.xs.length - 1 && x >= v && x < grid.xs[i + 1]);
+  const r = grid.ys.findIndex((v, i) => i < grid.ys.length - 1 && y >= v && y < grid.ys[i + 1]);
+  return c >= 0 && r >= 0 ? { c, r } : null;
+}
+
+crop.addEventListener('pointermove', e => {
+  if (!grid || selected === null || !app.classList.contains('started')) { crop.style.cursor = 'default'; return; }
+  let next = cellAt(e);
+  if ((e.buttons & 1) && paintStart && !longFired && next && (next.r !== lastPaint.r || next.c !== lastPaint.c)) {
+    if (!painted) { paintCell(paintStart); painted = true; }
+    paintCell(next);
+    lastPaint = next;
+    renderCrop();
+  }
+  if (selected.letter && next && crosses.has(next.r + ',' + next.c)) next = null;
+  if (erasing && next) eraseCell(next);
+  if (holding && (!next || next.c !== holding.cell.c || next.r !== holding.cell.r)) cancelHold();
+  crop.style.cursor = next ? 'pointer' : 'default';
+  if ((next && hover && next.c === hover.c && next.r === hover.r) || (!next && !hover)) return;
+  hover = next;
+  renderCrop();
+});
+crop.addEventListener('pointerleave', () => { erasing = false; paintStart = null; cancelHold(); if (hover) { hover = null; renderCrop(); } });
+
+function cancelHold() {
+  if (!holding) return;
+  cancelAnimationFrame(holding.raf);
+  holding = null;
+  if (img) renderCrop();
+}
+
+function tick() {
+  if (!holding) return;
+  if (performance.now() - holding.start >= HOLD_MS) {
+    const { cell, sel } = holding;
+    holding = null; longFired = true;
+    commitBig(cell, sel);
+    renderCrop();
+    return;
+  }
+  renderCrop();
+  holding.raf = requestAnimationFrame(tick);
+}
+
+// Places the big letter, clears small letters/big letters in its row and column, and crosses out the other cells there.
+function commitBig(cell, sel) {
+  for (let r = 0; r < grid.ys.length - 1; r++) for (let c = 0; c < grid.xs.length - 1; c++) {
+    if (r !== cell.r && c !== cell.c) continue;
+    const key = r + ',' + c;
+    marks.delete(key); bigs.delete(key);
+    if (r === cell.r && c === cell.c) crosses.delete(key); else crosses.add(key);
+  }
+  bigs.set(cell.r + ',' + cell.c, sel);
+  // Remove this character's small letters everywhere, then lock its button.
+  for (const [key, list] of [...marks]) {
+    const rest = list.filter(m => m.letter !== sel.letter);
+    rest.length ? marks.set(key, rest) : marks.delete(key);
+  }
+  updateLetterButtons();
+}
+
+function updateLetterButtons() {
+  const placed = new Set([...bigs.values()].map(m => m.letter));
+  highlightLetter = null;
+  for (const b of document.querySelectorAll('.tool.letter')) {
+    b.disabled = placed.has(b.textContent);
+    if (b.disabled) b.classList.remove('active');
+  }
+  if (selected && selected.letter && placed.has(selected.letter)) selected = null;
+}
+
+crop.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !grid || !selected || !selected.letter || !app.classList.contains('started')) return;
+  const cell = cellAt(e);
+  if (!cell || crosses.has(cell.r + ',' + cell.c)) return;
+  cancelHold();
+  longFired = false;
+  holding = { cell, sel: selected, start: performance.now() + HOLD_DELAY_MS, raf: 0 };
+  holding.raf = requestAnimationFrame(tick);
+});
+crop.addEventListener('pointerup', () => { erasing = false; paintStart = null; cancelHold(); });
+crop.addEventListener('pointercancel', () => { erasing = false; cancelHold(); });
+
+// Eraser: clicking (or dragging across) a cell clears X, small letters and big letter.
+let erasing = false;
+
+// Dragging with a character or the X tool selected paints that symbol into every cell the pointer enters.
+let paintStart = null, lastPaint = null, painted = false;
+function paintCell(cell) {
+  const key = cell.r + ',' + cell.c;
+  if (selected.x) { crosses.add(key); marks.delete(key); return; }
+  if (crosses.has(key)) return;
+  const list = marks.get(key) || [];
+  if (!list.some(m => m.letter === selected.letter)) { list.push(selected); marks.set(key, list); }
+}
+crop.addEventListener('pointerdown', e => {
+  painted = false; paintStart = null;
+  if (e.button !== 0 || !grid || !selected || !(selected.letter || selected.x) || !app.classList.contains('started')) return;
+  paintStart = lastPaint = cellAt(e);
+});
+function eraseCell(cell) {
+  const key = cell.r + ',' + cell.c;
+  if (!marks.delete(key) & !crosses.delete(key) & !bigs.delete(key)) return;
+  updateLetterButtons();
+  renderCrop();
+}
+crop.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !grid || !selected || !selected.eraser || !app.classList.contains('started')) return;
+  const cell = cellAt(e);
+  if (!cell) return;
+  erasing = true;
+  eraseCell(cell);
+});
+
+// Click toggles the selected character's letter in the clicked cell.
+crop.addEventListener('click', e => {
+  if (longFired) { longFired = false; return; }
+  if (painted) { painted = false; return; }
+  if (selected && selected.eraser) return;
+  if (!grid || selected === null || !app.classList.contains('started')) return;
+  const cell = cellAt(e);
+  if (!cell) return;
+  const key = cell.r + ',' + cell.c;
+  if (selected.x) {
+    if (crosses.has(key)) crosses.delete(key); else { crosses.add(key); marks.delete(key); }
+    renderCrop(); return;
+  }
+  if (crosses.has(key)) return;
+  const list = marks.get(key) || [];
+  const i = list.findIndex(m => m.letter === selected.letter);
+  if (i >= 0) list.splice(i, 1); else list.push(selected);
+  list.length ? marks.set(key, list) : marks.delete(key);
+  renderCrop();
+});
+
+// One button per character: A, B, ... and a final 'V'; each with its own colour.
+function buildLetters(n) {
+  const box = $('letters');
+  box.replaceChildren();
+  selected = null; hover = null; marks.clear(); crosses.clear(); bigs.clear(); cancelHold();
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('button');
+    b.className = 'tool letter';
+    b.textContent = i === n - 1 ? 'V' : String.fromCharCode(65 + i);
+    const hue = Math.round(i * 360 / n);
+    b.dataset.hue = hue;
+    b.style.setProperty('--c', `hsl(${hue}, 85%, 65%)`);
+    b.style.setProperty('--bg', `hsla(${hue}, 85%, 65%, 0.3)`);
+    b.addEventListener('click', () => toggleTool(b));
+    b.addEventListener('pointerenter', () => { if (b.disabled) return; highlightLetter = b.textContent; renderCrop(); });
+    b.addEventListener('pointerleave', () => { if (highlightLetter === null) return; highlightLetter = null; renderCrop(); });
+        box.appendChild(b);
+      }
+      updateLetterButtons();
+}
+
+document.querySelector('[data-tool="clear"]').addEventListener('click', () => {
+  if (!grid || !(marks.size || crosses.size || bigs.size)) return;
+  if (!confirm('Clear the whole grid? This removes all letters and X marks.')) return;
+  cancelHold();
+  marks.clear(); crosses.clear(); bigs.clear();
+  updateLetterButtons();
+  renderCrop();
+});
+
+function load(im) {
+  img = im;
+  charImg = null; src2.hidden = true; $('origPane').classList.remove('two');
+  app.classList.remove('started'); fitStarted();
+  msg.textContent = '';
+  scale = Math.min(1, 800 / Math.max(im.width, im.height));
+  const w = Math.round(im.width * scale), h = Math.round(im.height * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(im, 0, 0, w, h);
+  edges = computeEdges(ctx.getImageData(0, 0, w, h), w, h);
+  src.width = im.width; src.height = im.height;
+  app.classList.remove('empty');
+  app.classList.add('done');
+  rect = null; av = null;
+  analyze([0, 0, im.width, im.height]);
+  av = detectAvatars();
+  render();
+}
+
+// Finds the non-background area to the left of the grid (the avatar pictures).
+function detectAvatars() {
+  const { px, w, h } = edges, k = 1 / scale;
+  const gridLeft = Math.floor(rect.x0 * scale);
+  const limit = gridLeft > 20 ? gridLeft : Math.floor(w * 0.2);
+  const fallback = { x0: 0, y0: 0, x1: limit * k, y1: img.height };
+  if (limit < 15) return fallback;
+  const bg = [0, 1, 2].map(c => {
+    const vals = [];
+    for (let y = 0; y < h; y += 3) for (let x = 0; x < limit; x += 3) vals.push(px[(y * w + x) * 4 + c]);
+    return vals.sort((a, b) => a - b)[vals.length >> 1];
+  });
+  const cols = new Uint32Array(limit), rows = new Uint32Array(h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < limit; x++) {
+    const i = (y * w + x) * 4;
+    if (Math.max(Math.abs(px[i] - bg[0]), Math.abs(px[i+1] - bg[1]), Math.abs(px[i+2] - bg[2])) > 40) { cols[x]++; rows[y]++; }
+  }
+  const range = (arr, len, min) => {
+    let a = -1, b = -1;
+    for (let i = 0; i < len; i++) if (arr[i] >= min) { if (a < 0) a = i; b = i; }
+    return [a, b + 1];
+  };
+  const [x0, x1] = range(cols, limit, Math.max(3, h * 0.03));
+  const [y0, y1] = range(rows, h, Math.max(3, limit * 0.03));
+  if (x0 < 0 || y0 < 0 || x1 - x0 < 15 || y1 - y0 < 15) return fallback;
+  return { x0: x0 * k, y0: y0 * k, x1: x1 * k, y1: y1 * k };
+}
+
+// Detects the grid inside the given box (original px), updates rect and the crop.
+// snap: move the rectangle onto the detected grid border (only for the initial detection).
+function analyze(box, snap = true) {
+  const sb = box.map(v => v * scale);
+  const res = detectBorder(edges, sb) || detect(edges, sb);
+  if (res) {
+    const k = 1 / scale;
+    const r = res.rect || [res.xs[0], res.ys[0], res.xs[res.xs.length - 1], res.ys[res.ys.length - 1]];
+    if (snap || !rect) rect = { x0: r[0] * k, y0: r[1] * k, x1: r[2] * k, y1: r[3] * k };
+    grid = { xs: res.xs.map(v => v * k), ys: res.ys.map(v => v * k) };
+    $('info').innerHTML = `<b>${res.ys.length - 1}</b> rows × <b>${res.xs.length - 1}</b> columns`;
+    msg.textContent = '';
+  } else {
+    grid = null;
+    rect = rect || { x0: box[0], y0: box[1], x1: box[2], y1: box[3] };
+    $('info').textContent = 'No grid pattern found';
+    msg.textContent = 'Adjust the rectangle around the grid, or try a flatter, front-on photo.';
+  }
+  render();
+}
+
+function render() {
+  sctx.drawImage(img, 0, 0);
+  const lw = Math.max(3, img.width / 200), hs = lw * 3;
+  sctx.lineWidth = lw;
+  for (const [r, color] of [[rect, '#ff3d8b'], [charImg ? null : av, '#35d0ff']]) {
+    if (!r) continue;
+    drawRect(sctx, r, color, lw, hs);
+  }
+  if (charImg) {
+    s2ctx.drawImage(charImg, 0, 0);
+    const l2 = Math.max(3, charImg.width / 200);
+    drawRect(s2ctx, av, '#35d0ff', l2, l2 * 3);
+  }
+  if (av) {
+    const aw = Math.max(1, Math.round(av.x1 - av.x0)), ah = Math.max(1, Math.round(av.y1 - av.y0));
+    avc.width = aw; avc.height = ah;
+    actx.drawImage(charImg || img, av.x0, av.y0, aw, ah, 0, 0, aw, ah);
+  }
+  renderCrop();
+}
+
+let highlightLetter = null; // letter whose small marks are highlighted while its button is hovered
+let hover = null;         // {c, r} grid cell under the pointer on the right picture
+let selected = null;      // {letter, hue} of the selected character button, null if none
+const crosses = new Set(); // "row,col" cells marked with an X
+const marks = new Map();  // "row,col" -> [{letter, hue}] placed characters
+const bigs = new Map();   // "row,col" -> {letter, hue} confirmed (long-pressed) character
+const HOLD_MS = 1000;        // fill time of the long press
+const HOLD_DELAY_MS = 100;   // grace period before the fill animation starts
+let holding = null;       // {cell, sel, start, raf} while a long press is in progress
+let longFired = false;
+
+function renderCrop() {
+  const w = Math.max(1, Math.round(rect.x1 - rect.x0)), h = Math.max(1, Math.round(rect.y1 - rect.y0));
+  // Render at the displayed size so letters stay sharp; all drawing below uses image pixels.
+  const shown = parseFloat(crop.style.width) || w;
+  cropScale = Math.min(Math.max(1, shown / w * (window.devicePixelRatio || 1)), 4096 / Math.max(w, h));
+  const cw0 = Math.round(w * cropScale), ch0 = Math.round(h * cropScale);
+  if (crop.width !== cw0 || crop.height !== ch0) { crop.width = cw0; crop.height = ch0; }
+  cctx.setTransform(1, 0, 0, 1, 0, 0);
+  cctx.clearRect(0, 0, crop.width, crop.height);
+  cctx.setTransform(cropScale, 0, 0, cropScale, 0, 0);
+  cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(img, rect.x0, rect.y0, w, h, 0, 0, w, h);
+  if (grid && hover && selected && (selected.hue !== null || selected.eraser || selected.x)) {
+    cctx.fillStyle = selected.hue !== null ? `hsla(${selected.hue}, 85%, 60%, 0.3)` : 'rgba(255,255,255,0.35)';
+    cctx.fillRect(grid.xs[hover.c] - rect.x0, grid.ys[hover.r] - rect.y0, grid.xs[hover.c + 1] - grid.xs[hover.c], grid.ys[hover.r + 1] - grid.ys[hover.r]);
+    if (selected.x && !crosses.has(hover.r + ',' + hover.c)) {
+      const cx = grid.xs[hover.c] - rect.x0, cy = grid.ys[hover.r] - rect.y0, cw = grid.xs[hover.c + 1] - grid.xs[hover.c], ch = grid.ys[hover.r + 1] - grid.ys[hover.r];
+      const px = cw * 0.15, py = ch * 0.15;
+      cctx.strokeStyle = 'rgba(0,0,0,0.35)'; cctx.lineCap = 'round'; cctx.lineWidth = Math.max(3, Math.min(cw, ch) * 0.09);
+      cctx.beginPath();
+      cctx.moveTo(cx + px, cy + py); cctx.lineTo(cx + cw - px, cy + ch - py);
+      cctx.moveTo(cx + cw - px, cy + py); cctx.lineTo(cx + px, cy + ch - py);
+      cctx.stroke();
+    }
+  }
+  if (grid && app.classList.contains('started')) {
+    cctx.strokeStyle = '#000'; cctx.lineCap = 'round';
+    for (const key of crosses) {
+      const [r, c] = key.split(',').map(Number);
+      const cx = grid.xs[c] - rect.x0, cy = grid.ys[r] - rect.y0, cw = grid.xs[c + 1] - grid.xs[c], ch = grid.ys[r + 1] - grid.ys[r];
+      const px = cw * 0.15, py = ch * 0.15;
+      cctx.lineWidth = Math.max(3, Math.min(cw, ch) * 0.09);
+      cctx.beginPath();
+      cctx.moveTo(cx + px, cy + py); cctx.lineTo(cx + cw - px, cy + ch - py);
+      cctx.moveTo(cx + cw - px, cy + py); cctx.lineTo(cx + px, cy + ch - py);
+      cctx.stroke();
+    }
+    for (const [key, list] of marks) {
+      const [r, c] = key.split(',').map(Number);
+      const cx = grid.xs[c] - rect.x0, cy = grid.ys[r] - rect.y0, cw = grid.xs[c + 1] - grid.xs[c], ch = grid.ys[r + 1] - grid.ys[r];
+      const fs = Math.max(8, Math.min(cw, ch) * 0.28), pad = fs * 0.2;
+      cctx.font = `700 ${fs}px "Segoe UI", sans-serif`; cctx.textBaseline = 'top';
+      cctx.lineWidth = fs * 0.2; cctx.strokeStyle = 'rgba(0,0,0,.75)'; cctx.lineJoin = 'round';
+      let x = cx + pad, y = cy + pad;
+      for (const m of list) {
+        const tw = cctx.measureText(m.letter).width;
+        if (x + tw > cx + cw - pad && x > cx + pad) { x = cx + pad; y += fs * 1.1; }
+        if (m.letter === highlightLetter) {
+          cctx.fillStyle = `hsla(${m.hue}, 85%, 65%, 0.55)`;
+          cctx.beginPath(); cctx.roundRect(x - pad * 0.7, y - pad * 0.5, tw + pad * 1.4, fs * 1.15, pad);
+          cctx.fill();
+          cctx.strokeStyle = '#fff'; cctx.lineWidth = Math.max(1.5, fs * 0.08); cctx.stroke();
+          cctx.lineWidth = fs * 0.2; cctx.strokeStyle = 'rgba(0,0,0,.75)';
+        }
+        cctx.strokeText(m.letter, x, y);
+        cctx.fillStyle = `hsl(${m.hue}, 85%, 65%)`;
+        cctx.fillText(m.letter, x, y);
+        x += tw + pad;
+      }
+    }
+    for (const [key, m] of bigs) {
+      const [r, c] = key.split(',').map(Number);
+      const cx = grid.xs[c] - rect.x0, cy = grid.ys[r] - rect.y0, cw = grid.xs[c + 1] - grid.xs[c], ch = grid.ys[r + 1] - grid.ys[r];
+      const fs = Math.min(cw, ch) * 0.75;
+      cctx.font = `700 ${fs}px "Segoe UI", sans-serif`; cctx.textAlign = 'center'; cctx.textBaseline = 'alphabetic';
+      cctx.lineWidth = fs * 0.08; cctx.strokeStyle = 'rgba(0,0,0,.75)'; cctx.lineJoin = 'round';
+      const tm = cctx.measureText(m.letter), ty = cy + ch / 2 + (tm.actualBoundingBoxAscent - tm.actualBoundingBoxDescent) / 2;
+      cctx.strokeText(m.letter, cx + cw / 2, ty);
+      cctx.fillStyle = `hsl(${m.hue}, 85%, 65%)`;
+      cctx.fillText(m.letter, cx + cw / 2, ty);
+      cctx.textAlign = 'left';
+    }
+    if (holding && performance.now() > holding.start) {
+      const { cell, sel } = holding, p = Math.min(1, (performance.now() - holding.start) / HOLD_MS);
+      const cx = grid.xs[cell.c] - rect.x0, cy = grid.ys[cell.r] - rect.y0, cw = grid.xs[cell.c + 1] - grid.xs[cell.c], ch = grid.ys[cell.r + 1] - grid.ys[cell.r];
+      const mx = cx + cw / 2, my = cy + ch / 2, rad = Math.min(cw, ch) * 0.38;
+      cctx.beginPath(); cctx.moveTo(mx, my); cctx.arc(mx, my, rad, -Math.PI / 2, -Math.PI / 2 + p * 2 * Math.PI); cctx.closePath();
+      cctx.fillStyle = `hsla(${sel.hue}, 85%, 60%, 0.75)`; cctx.fill();
+      cctx.beginPath(); cctx.arc(mx, my, rad, 0, 2 * Math.PI);
+      cctx.strokeStyle = '#fff'; cctx.lineWidth = Math.max(2, rad * 0.08); cctx.stroke();
+    }
+  }
+  if (grid && !app.classList.contains('started')) {
+    cctx.fillStyle = 'rgba(128,128,128,0.6)';
+    cctx.fillRect(grid.xs[0] - rect.x0, grid.ys[0] - rect.y0, grid.xs[grid.xs.length - 1] - grid.xs[0], grid.ys[grid.ys.length - 1] - grid.ys[0]);
+    cctx.strokeStyle = '#90ee90'; cctx.lineWidth = Math.max(2, w / 250);
+    cctx.beginPath();
+    for (const x of grid.xs) { cctx.moveTo(x - rect.x0, grid.ys[0] - rect.y0); cctx.lineTo(x - rect.x0, grid.ys[grid.ys.length - 1] - rect.y0); }
+    for (const y of grid.ys) { cctx.moveTo(grid.xs[0] - rect.x0, y - rect.y0); cctx.lineTo(grid.xs[grid.xs.length - 1] - rect.x0, y - rect.y0); }
+    cctx.stroke();
+    const gx0 = grid.xs[0] - rect.x0, gy0 = grid.ys[0] - rect.y0, gx1 = grid.xs[grid.xs.length - 1] - rect.x0, gy1 = grid.ys[grid.ys.length - 1] - rect.y0;
+    const hs = Math.max(4, w / 110);
+    cctx.fillStyle = '#fff'; cctx.strokeStyle = '#90ee90'; cctx.lineWidth = Math.max(1.5, w / 400);
+    for (const [hx, hy] of handles({ x0: gx0, y0: gy0, x1: gx1, y1: gy1 })) {
+      cctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
+      cctx.strokeRect(hx - hs, hy - hs, hs * 2, hs * 2);
+    }
+  }
+}
+
+// Before Start: resize the grey grid overlay with its handles; the row/column count stays, cells are rescaled.
+let gridDrag = null;
+function gridHit(e) {
+  const [px, py] = pointer(e, crop), x = px / cropScale + rect.x0, y = py / cropScale + rect.y0;
+  const o = { x0: grid.xs[0], y0: grid.ys[0], x1: grid.xs[grid.xs.length - 1], y1: grid.ys[grid.ys.length - 1] };
+  const tol = Math.max(8, (rect.x1 - rect.x0) / 40);
+  const hs = handles(o);
+  for (let i = 0; i < hs.length; i++) if (Math.hypot(x - hs[i][0], y - hs[i][1]) <= tol) return { mode: MODES[i], o, x, y };
+  const inX = x >= o.x0 - tol && x <= o.x1 + tol, inY = y >= o.y0 - tol && y <= o.y1 + tol;
+  let mode = '';
+  if (inX && Math.abs(y - o.y0) <= tol) mode = 'n'; else if (inX && Math.abs(y - o.y1) <= tol) mode = 's';
+  if (inY && Math.abs(x - o.x0) <= tol) mode += 'w'; else if (inY && Math.abs(x - o.x1) <= tol) mode += 'e';
+  return mode ? { mode, o, x, y } : null;
+}
+crop.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !grid || app.classList.contains('started')) return;
+  const h = gridHit(e);
+  if (!h) return;
+  gridDrag = { ...h, base: { xs: grid.xs.slice(), ys: grid.ys.slice() } };
+  crop.setPointerCapture(e.pointerId);
+});
+crop.addEventListener('pointermove', e => {
+  if (!grid || app.classList.contains('started')) return;
+  if (!gridDrag) { const h = gridHit(e); crop.style.cursor = h ? CURSORS[h.mode] : 'default'; return; }
+  const [px, py] = pointer(e, crop), dx = px / cropScale + rect.x0 - gridDrag.x, dy = py / cropScale + rect.y0 - gridDrag.y;
+  const m = gridDrag.mode, o = gridDrag.o, min = 20;
+  let { x0, y0, x1, y1 } = o;
+  if (m.includes('w')) x0 = Math.min(Math.max(rect.x0, x0 + dx), x1 - min);
+  if (m.includes('e')) x1 = Math.max(Math.min(rect.x1, x1 + dx), x0 + min);
+  if (m.includes('n')) y0 = Math.min(Math.max(rect.y0, y0 + dy), y1 - min);
+  if (m.includes('s')) y1 = Math.max(Math.min(rect.y1, y1 + dy), y0 + min);
+  const { xs, ys } = gridDrag.base;
+  grid = { xs: xs.map(v => x0 + (v - o.x0) / (o.x1 - o.x0) * (x1 - x0)), ys: ys.map(v => y0 + (v - o.y0) / (o.y1 - o.y0) * (y1 - y0)) };
+  renderCrop();
+});
+const endGridDrag = () => { gridDrag = null; };
+crop.addEventListener('pointerup', endGridDrag);
+crop.addEventListener('pointercancel', endGridDrag);
+
+function drawRect(ctx, r, color, lw, hs) {
+  ctx.lineWidth = lw; ctx.strokeStyle = color; ctx.fillStyle = '#fff';
+  ctx.strokeRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
+  for (const [hx, hy] of handles(r)) {
+    ctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
+    ctx.strokeRect(hx - hs, hy - hs, hs * 2, hs * 2);
+  }
+}
+
+function handles(r) {
+  const { x0, y0, x1, y1 } = r, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  return [[x0,y0],[mx,y0],[x1,y0],[x1,my],[x1,y1],[mx,y1],[x0,y1],[x0,my]];
+}
+const MODES = ['nw','n','ne','e','se','s','sw','w'];
+
+function pointer(e, cv = src) {
+  const r = cv.getBoundingClientRect();
+  return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height];
+}
+
+// Returns {which: 'grid'|'av', mode} for the handle/body under the pointer.
+function hit(px, py, only, width = img.width) {
+  const tol = Math.max(14, width / 40);
+  const items = [['av', charImg && !only ? null : av], ['grid', only ? null : rect]].filter(([, r]) => r);
+  for (const [which, r] of items) {
+    const hs = handles(r);
+    for (let i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i][0], py - hs[i][1]) <= tol) return { which, mode: MODES[i] };
+  }
+  for (const [which, r] of items) {
+    if (px > r.x0 && px < r.x1 && py > r.y0 && py < r.y1) return { which, mode: 'move' };
+  }
+  return null;
+}
+
+const CURSORS = { nw:'nwse-resize', se:'nwse-resize', ne:'nesw-resize', sw:'nesw-resize', n:'ns-resize', s:'ns-resize', e:'ew-resize', w:'ew-resize', move:'move' };
+
+function dragRect(o, m, dx, dy, W, H) {
+  const min = 20;
+  let { x0, y0, x1, y1 } = o;
+  if (m === 'move') {
+    const mx = Math.min(Math.max(dx, -x0), W - x1), my = Math.min(Math.max(dy, -y0), H - y1);
+    x0 += mx; x1 += mx; y0 += my; y1 += my;
+  } else {
+    if (m.includes('w')) x0 = Math.min(Math.max(0, x0 + dx), x1 - min);
+    if (m.includes('e')) x1 = Math.max(Math.min(W, x1 + dx), x0 + min);
+    if (m.includes('n')) y0 = Math.min(Math.max(0, y0 + dy), y1 - min);
+    if (m.includes('s')) y1 = Math.max(Math.min(H, y1 + dy), y0 + min);
+  }
+  return { x0, y0, x1, y1 };
+}
+
+src.addEventListener('pointerdown', e => {
+  if (!rect) return;
+  const [px, py] = pointer(e), h = hit(px, py);
+  if (!h) return;
+  if (h.which === 'grid') grid = null;
+  drag = { which: h.which, mode: h.mode, px, py, orig: { ...(h.which === 'grid' ? rect : av) } };
+  src.setPointerCapture(e.pointerId);
+});
+
+src.addEventListener('pointermove', e => {
+  const [px, py] = pointer(e);
+  if (!drag) { const h = rect && hit(px, py); src.style.cursor = h ? CURSORS[h.mode] : 'default'; return; }
+  const r = dragRect(drag.orig, drag.mode, px - drag.px, py - drag.py, img.width, img.height);
+  if (drag.which === 'av') av = r; else rect = r;
+  render();
+});
+
+// Characters image: only the cyan rectangle is editable.
+let drag2 = null;
+src2.addEventListener('pointerdown', e => {
+  const [px, py] = pointer(e, src2), h = hit(px, py, 'av', charImg.width);
+  if (!h) return;
+  drag2 = { mode: h.mode, px, py, orig: { ...av } };
+  src2.setPointerCapture(e.pointerId);
+});
+src2.addEventListener('pointermove', e => {
+  if (!charImg) return;
+  const [px, py] = pointer(e, src2);
+  if (!drag2) { const h = hit(px, py, 'av', charImg.width); src2.style.cursor = h ? CURSORS[h.mode] : 'default'; return; }
+  av = dragRect(drag2.orig, drag2.mode, px - drag2.px, py - drag2.py, charImg.width, charImg.height);
+  render();
+});
+src2.addEventListener('pointerup', () => { drag2 = null; });
+src2.addEventListener('pointercancel', () => { drag2 = null; });
+
+$('charFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f || !img) return;
+  openFile(f, im => {
+    charImg = im;
+    src2.width = im.width; src2.height = im.height;
+    src2.hidden = false; $('origPane').classList.add('two');
+    av = { x0: 0, y0: 0, x1: im.width, y1: im.height };
+    render();
+  });
+  e.target.value = '';
+});
+
+function endDrag() {
+  if (!drag) return;
+  const which = drag.which;
+  drag = null;
+  if (which === 'grid') analyze([rect.x0, rect.y0, rect.x1, rect.y1], false);
+}
+src.addEventListener('pointerup', endDrag);
+src.addEventListener('pointercancel', endDrag);
+
+function computeEdges(data, w, h) {
+  const px = data.data, g = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) g[i] = 0.299 * px[i*4] + 0.587 * px[i*4+1] + 0.114 * px[i*4+2];
+  const gx = new Float32Array(w * h), gy = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    gx[i] = Math.abs(g[i-w+1] + 2*g[i+1] + g[i+w+1] - g[i-w-1] - 2*g[i-1] - g[i+w-1]);
+    gy[i] = Math.abs(g[i+w-1] + 2*g[i+w] + g[i+w+1] - g[i-w-1] - 2*g[i-w] - g[i-w+1]);
+  }
+  return { gx, gy, g, px, w, h };
+}
+
+// box in analysis px: [x0, y0, x1, y1]
+function detect(edges, box) {
+  const { gx, gy, w, h } = edges;
+  let bx0 = Math.max(0, Math.floor(box[0])), by0 = Math.max(0, Math.floor(box[1]));
+  let bx1 = Math.min(w, Math.ceil(box[2])), by1 = Math.min(h, Math.ceil(box[3]));
+  let xs = null, ys = null;
+  // Refine: restrict each axis's profile to the other axis's detected range.
+  for (let pass = 0; pass < 3; pass++) {
+    const col = new Float32Array(w), row = new Float32Array(h);
+    for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) {
+      const i = y * w + x; col[x] += gx[i]; row[y] += gy[i];
+    }
+    const nx = findChain(col, bx0, bx1), ny = findChain(row, by0, by1);
+    if (!nx || !ny) return pass === 0 ? null : { xs, ys };
+    xs = nx; ys = ny;
+    bx0 = xs[0]; bx1 = xs[xs.length - 1] + 1; by0 = ys[0]; by1 = ys[ys.length - 1] + 1;
+  }
+  return xs.length >= 3 && ys.length >= 3 ? { xs, ys } : null;
+}
+
+function otsu(g, bx0, by0, bx1, by1, w) {
+  const hist = new Float64Array(256); let total = 0;
+  for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) { hist[Math.min(255, g[y * w + x] | 0)]++; total++; }
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let wB = 0, sB = 0, bestV = -1, thr = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = total - wB; if (!wF) break;
+    sB += t * hist[t];
+    const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) ** 2;
+    if (v > bestV) { bestV = v; thr = t; }
+  }
+  return thr;
+}
+
+function bands(arr, lo, hi, thr) {
+  const out = [];
+  for (let i = lo; i < hi; i++) {
+    if (arr[i] < thr) continue;
+    const last = out[out.length - 1];
+    if (last && i - last.e <= 2) last.e = i; else out.push({ s: i, e: i });
+  }
+  return out;
+}
+
+// Outermost band, preferring thick ones (the grid's wide black border).
+function outerBands(list) {
+  if (list.length < 2) return null;
+  const th = list.map(b => b.e - b.s + 1).sort((a, b) => a - b), med = th[th.length >> 1];
+  const thick = list.filter(b => b.e - b.s + 1 >= 1.5 * med);
+  const use = thick.length >= 2 ? thick : list;
+  return [use[0], use[use.length - 1]];
+}
+
+// Finds the wide dark border (long continuous dark runs), then counts cells inside it.
+function detectBorder(edges, box) {
+  const { gx, gy, g, w, h } = edges;
+  const bx0 = Math.max(0, Math.floor(box[0])), by0 = Math.max(0, Math.floor(box[1]));
+  const bx1 = Math.min(w, Math.ceil(box[2])), by1 = Math.min(h, Math.ceil(box[3]));
+  if (bx1 - bx0 < 30 || by1 - by0 < 30) return null;
+  const thr = otsu(g, bx0, by0, bx1, by1, w);
+  const rowRun = new Float32Array(h), colRun = new Float32Array(w), cur = new Float32Array(w);
+  for (let y = by0; y < by1; y++) {
+    let run = 0;
+    for (let x = bx0; x < bx1; x++) {
+      if (g[y * w + x] <= thr) {
+        run++; cur[x]++;
+        if (run > rowRun[y]) rowRun[y] = run;
+        if (cur[x] > colRun[x]) colRun[x] = cur[x];
+      } else { run = 0; cur[x] = 0; }
+    }
+  }
+  const rMax = Math.max(...rowRun.subarray(by0, by1)), cMax = Math.max(...colRun.subarray(bx0, bx1));
+  if (rMax < 0.2 * (bx1 - bx0) || cMax < 0.2 * (by1 - by0)) return null;
+  const hb = outerBands(bands(rowRun, by0, by1, 0.6 * rMax));
+  const vb = outerBands(bands(colRun, bx0, bx1, 0.6 * cMax));
+  if (!hb || !vb) return null;
+  const x0 = vb[0].s, x1 = vb[1].e + 1, y0 = hb[0].s, y1 = hb[1].e + 1;
+  if (x1 - x0 < 30 || y1 - y0 < 30) return null;
+
+  // Count cells between the border centers using the edge profiles.
+  const cxL = (vb[0].s + vb[0].e) >> 1, cxR = (vb[1].s + vb[1].e) >> 1;
+  const cyT = (hb[0].s + hb[0].e) >> 1, cyB = (hb[1].s + hb[1].e) >> 1;
+  const col = new Float32Array(w), row = new Float32Array(h);
+  for (let y = cyT; y <= cyB; y++) for (let x = cxL; x <= cxR; x++) {
+    const i = y * w + x; col[x] += gx[i]; row[y] += gy[i];
+  }
+  const xs = findChain(col, cxL, cxR + 1), ys = findChain(row, cyT, cyB + 1);
+  if (!xs || !ys) return null;
+  return { xs, ys, rect: [x0, y0, x1, y1] };
+}
+
+function boxAvg(a, r) {
+  const n = a.length, out = new Float32Array(n), pre = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) pre[i+1] = pre[i] + a[i];
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - r), hi = Math.min(n, i + r + 1);
+    out[i] = (pre[hi] - pre[lo]) / (hi - lo);
+  }
+  return out;
+}
+
+// Returns positions of evenly spaced line peaks within [from, to) of a 1D edge profile, or null.
+function findChain(full, from, to) {
+  const profile = full.subarray(from, to), n = profile.length;
+  if (n < 30) return null;
+  const sm = boxAvg(profile, 1), bg = boxAvg(profile, 20);
+  const hp = new Float32Array(n);
+  for (let i = 0; i < n; i++) hp[i] = Math.max(0, sm[i] - bg[i]);
+  let mean = 0; for (const v of hp) mean += v; mean /= n;
+  let sd = 0; for (const v of hp) sd += (v - mean) ** 2; sd = Math.sqrt(sd / n);
+  if (sd === 0) return null;
+
+  // Autocorrelation -> spacing (smallest strong lag, to avoid picking multiples).
+  const maxLag = Math.floor(n / 2), ac = new Float32Array(maxLag + 1);
+  for (let l = 6; l <= maxLag; l++) {
+    let s = 0; for (let i = 0; i + l < n; i++) s += hp[i] * hp[i + l];
+    ac[l] = s / (n - l);
+  }
+  let best = 0; for (let l = 7; l < maxLag; l++) best = Math.max(best, ac[l]);
+  if (best <= 0) return null;
+  let d = 0;
+  for (let l = 7; l < maxLag; l++) {
+    if (ac[l] >= 0.6 * best && ac[l] >= ac[l-1] && ac[l] >= ac[l+1]) { d = l; break; }
+  }
+  if (!d) return null;
+
+  const thr = mean + 0.5 * sd, peaks = [];
+  for (let i = 2; i < n - 2; i++) {
+    if (hp[i] > thr && hp[i] >= hp[i-1] && hp[i] > hp[i+1] && hp[i] >= hp[i-2] && hp[i] > hp[i+2]) {
+      if (peaks.length && i - peaks[peaks.length - 1] < d * 0.4) {
+        if (hp[i] > hp[peaks[peaks.length - 1]]) peaks[peaks.length - 1] = i;
+      } else peaks.push(i);
+    }
+  }
+  const tol = d * 0.25;
+  let bestChain = null, bestFound = 0;
+  for (const start of peaks) {
+    const chain = [start], found = [true];
+    let pos = start;
+    for (;;) {
+      const exp = pos + d;
+      if (exp > n - 1) break;
+      const near = peaks.find(p => Math.abs(p - exp) <= tol);
+      if (near !== undefined) { pos = near; chain.push(near); found.push(true); }
+      else { pos = exp; chain.push(Math.round(exp)); found.push(false); }
+      const L = found.length;
+      if (L >= 2 && !found[L-1] && !found[L-2]) break;
+    }
+    while (found.length && !found[found.length - 1]) { chain.pop(); found.pop(); }
+    const cnt = found.filter(Boolean).length;
+    if (cnt > bestFound) { bestFound = cnt; bestChain = chain; }
+  }
+  return bestChain && bestChain.length >= 3 && bestFound >= 3 ? bestChain.map(p => p + from) : null;
+}
+</script>
+</body>
+</html>
