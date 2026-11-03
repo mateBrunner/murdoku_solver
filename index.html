@@ -162,7 +162,8 @@ for (const b of document.querySelectorAll('.tool:not(.action)')) b.addEventListe
 // Pressing a character key selects the matching character button.
 document.addEventListener('keydown', e => {
   if (!app.classList.contains('started') || e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.key.length !== 1) return;
-  const b = [...document.querySelectorAll('.tool.letter')].find(x => x.textContent === e.key.toUpperCase());
+  const b = [...document.querySelectorAll('.tool.letter')].find(x => x.textContent === e.key.toUpperCase())
+    || (e.key.toLowerCase() === 'x' ? document.querySelector('.tool[data-tool="x"]') : null);
   if (b && !b.disabled) toggleTool(b);
 });
 
@@ -525,6 +526,42 @@ const HOLD_DELAY_MS = 100;   // grace period before the fill animation starts
 let holding = null;       // {cell, sel, start, raf} while a long press is in progress
 let longFired = false;
 
+// Blood pool, splatter and drips for the victim ("V") cell; deterministic per cell so it doesn't flicker.
+function drawBlood(cx, cy, cw, ch, seed) {
+  let s = seed >>> 0;
+  const rnd = () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const u = Math.min(cw, ch), mx = cx + cw / 2, my = cy + ch / 2;
+  cctx.save();
+  cctx.beginPath(); cctx.rect(cx, cy, cw, ch); cctx.clip();
+  const blob = (x, y, rad, color, n = 12) => {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2, rr = rad * (0.78 + rnd() * 0.44);
+      pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+    }
+    cctx.beginPath();
+    cctx.moveTo((pts[n - 1][0] + pts[0][0]) / 2, (pts[n - 1][1] + pts[0][1]) / 2);
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], q = pts[(i + 1) % n];
+      cctx.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+    }
+    cctx.closePath(); cctx.fillStyle = color; cctx.fill();
+  };
+  cctx.lineJoin = 'round';
+  for (let i = 0; i < 3; i++) {
+    const x = cx + cw * (0.15 + rnd() * 0.7), len = ch * (0.2 + rnd() * 0.35), wd = Math.max(1.5, u * (0.03 + rnd() * 0.03));
+    cctx.fillStyle = 'rgba(120,0,0,0.9)';
+    cctx.fillRect(x - wd / 2, cy, wd, len);
+    cctx.beginPath(); cctx.arc(x, cy + len, wd * 0.85, 0, Math.PI * 2); cctx.fill();
+  }
+  blob(mx, my, u * 0.34, 'rgba(110,0,0,0.85)');
+  blob(mx - u * 0.04, my - u * 0.03, u * 0.2, 'rgba(160,10,10,0.8)');
+  for (let i = 0; i < 14; i++) {
+    const a = rnd() * Math.PI * 2, d = u * (0.3 + rnd() * 0.25);
+    blob(mx + Math.cos(a) * d, my + Math.sin(a) * d, u * (0.012 + rnd() * 0.035), 'rgba(140,0,0,0.85)', 8);
+  }
+  cctx.restore();
+}
 function renderCrop() {
   scheduleSave();
   const w = Math.max(1, Math.round(rect.x1 - rect.x0)), h = Math.max(1, Math.round(rect.y1 - rect.y0));
@@ -592,6 +629,7 @@ function renderCrop() {
       const fs = Math.min(cw, ch) * 0.75;
       cctx.fillStyle = `hsla(${m.hue}, 85%, 60%, 0.3)`;
       cctx.fillRect(cx, cy, cw, ch);
+      if (m.letter === 'V') drawBlood(cx, cy, cw, ch, +r * 31 + +c * 17 + 5);
       cctx.font = `700 ${fs}px "Segoe UI", sans-serif`; cctx.textAlign = 'center'; cctx.textBaseline = 'alphabetic';
       cctx.lineWidth = fs * 0.08; cctx.strokeStyle = 'rgba(0,0,0,.75)'; cctx.lineJoin = 'round';
       const tm = cctx.measureText(m.letter), ty = cy + ch / 2 + (tm.actualBoundingBoxAscent - tm.actualBoundingBoxDescent) / 2;
