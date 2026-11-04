@@ -30,6 +30,8 @@
   .pane.side { flex: 0.6 1 0; }
   .badge { background: rgba(255,255,255,.14); backdrop-filter: blur(8px); border-radius: 999px; padding: 8px 20px; font-size: 1.05rem; }
   .badge b { font-size: 1.25rem; }
+  #info input { width: 3.6em; padding: 4px 6px; margin: 0 4px; font: inherit; font-weight: 700; text-align: center; color: #fff; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.4); border-radius: 8px; outline: none; }
+  #info input:focus { border-color: #fff; background: rgba(255,255,255,.26); }
   .btn {
     cursor: pointer; border: 0; color: #fff; font-size: 1.15rem; font-weight: 600;
     padding: 16px 36px; border-radius: 999px;
@@ -72,7 +74,7 @@
     <button class="tool action" data-tool="clear" title="Clear" aria-label="Clear"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6"/></svg></button>
   <div class="letters" id="letters"></div>
   </div>
- <div class="pane"><canvas id="crop"></canvas><div class="badge" id="info"></div></div>
+ <div class="pane"><canvas id="crop"></canvas><div class="badge" id="info"><input id="rowsIn" type="number" min="1" max="40" aria-label="Rows"> rows × <input id="colsIn" type="number" min="1" max="40" aria-label="Columns"> columns</div></div>
 </div>
 <button class="start" id="start">Start</button>
 <div id="msg"></div>
@@ -435,7 +437,7 @@ function load(im, st, ci) {
   rect = null; av = null;
   if (st) {
     rect = st.rect; grid = st.grid; av = st.av;
-    $('info').innerHTML = grid ? `<b>${grid.ys.length - 1}</b> rows × <b>${grid.xs.length - 1}</b> columns` : 'No grid pattern found';
+    setInfo();
     render();
     return;
   }
@@ -473,6 +475,23 @@ function detectAvatars() {
   return { x0: x0 * k, y0: y0 * k, x1: x1 * k, y1: y1 * k };
 }
 
+// Row/column inputs under the right picture: show the detected size and let the user set it by hand.
+function setInfo() {
+  $('rowsIn').value = grid ? grid.ys.length - 1 : '';
+  $('colsIn').value = grid ? grid.xs.length - 1 : '';
+}
+function applySize() {
+  const r = Math.round(+$('rowsIn').value), c = Math.round(+$('colsIn').value);
+  if (!rect || !(r >= 1 && r <= 40 && c >= 1 && c <= 40)) return;
+  const b = grid ? { x0: grid.xs[0], y0: grid.ys[0], x1: grid.xs[grid.xs.length - 1], y1: grid.ys[grid.ys.length - 1] } : rect;
+  const lines = (a, z, n) => Array.from({ length: n + 1 }, (_, i) => a + (z - a) * i / n);
+  grid = { xs: lines(b.x0, b.x1, c), ys: lines(b.y0, b.y1, r) };
+  msg.textContent = '';
+  setInfo();
+  renderCrop();
+}
+$('rowsIn').addEventListener('change', applySize);
+$('colsIn').addEventListener('change', applySize);
 // Detects the grid inside the given box (original px), updates rect and the crop.
 // snap: move the rectangle onto the detected grid border (only for the initial detection).
 function analyze(box, snap = true) {
@@ -483,12 +502,12 @@ function analyze(box, snap = true) {
     const r = res.rect || [res.xs[0], res.ys[0], res.xs[res.xs.length - 1], res.ys[res.ys.length - 1]];
     if (snap || !rect) rect = { x0: r[0] * k, y0: r[1] * k, x1: r[2] * k, y1: r[3] * k };
     grid = { xs: res.xs.map(v => v * k), ys: res.ys.map(v => v * k) };
-    $('info').innerHTML = `<b>${res.ys.length - 1}</b> rows × <b>${res.xs.length - 1}</b> columns`;
+    setInfo();
     msg.textContent = '';
   } else {
     grid = null;
     rect = rect || { x0: box[0], y0: box[1], x1: box[2], y1: box[3] };
-    $('info').textContent = 'No grid pattern found';
+    setInfo();
     msg.textContent = 'Adjust the rectangle around the grid, or try a flatter, front-on photo.';
   }
   render();
