@@ -793,9 +793,14 @@ function renderCrop() {
     if (holding && performance.now() > holding.start) {
       const { cell, sel } = holding, p = Math.min(1, (performance.now() - holding.start) / HOLD_MS);
       const cx = grid.xs[cell.c] - rect.x0, cy = grid.ys[cell.r] - rect.y0, cw = grid.xs[cell.c + 1] - grid.xs[cell.c], ch = grid.ys[cell.r + 1] - grid.ys[cell.r];
-      const rad = Math.min(cw, ch) * 0.38;
+      let rad = Math.min(cw, ch) * 0.38;
       let mx = cx + cw / 2, my = cy + ch / 2;
-      if (COARSE.matches) { mx = Math.max(rad, mx - rad * 2.2); my = Math.max(rad, my - rad * 2.2); } // keep it visible beside the finger
+      if (COARSE.matches) { // twice as large, constant on-screen size under pinch zoom, kept beside the finger
+        rad = Math.min(cw, ch) * 0.76 / view.z;
+        const z = app.classList.contains('started') ? view.z : 1;
+        if (z === 1) rad = Math.min(cw, ch) * 0.76;
+        mx = Math.max(rad + (z > 1 ? view.ox : 0), mx - rad * 1.4); my = Math.max(rad + (z > 1 ? view.oy : 0), my - rad * 1.4);
+      }
 
       cctx.beginPath(); cctx.moveTo(mx, my); cctx.arc(mx, my, rad, -Math.PI / 2, -Math.PI / 2 + p * 2 * Math.PI); cctx.closePath();
       cctx.fillStyle = `hsla(${sel.hue}, 85%, 60%, 0.75)`; cctx.fill();
