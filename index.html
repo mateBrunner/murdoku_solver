@@ -207,7 +207,7 @@ function loadPuzzle(p) {
     .then(b => { msg.textContent = ''; openFile(new File([b], p.slug + '.pdf', { type: 'application/pdf' }), im => load(limit(im))); })
     .catch(() => { msg.textContent = 'Could not download that puzzle.'; });
 }
-$('upload').addEventListener('click', e => { e.preventDefault(); sourceMenu(); });
+$('upload').addEventListener('click', e => { if (e.target === $('file')) return; e.preventDefault(); sourceMenu(); });
 dlg.addEventListener('click', e => { if (e.target === dlg) closeDialog(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !dlg.hidden) closeDialog(); });
 
