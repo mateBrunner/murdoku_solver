@@ -86,11 +86,12 @@
     #app.started { height: calc(100dvh - 16px); overflow: hidden; gap: 8px; max-width: none; }
     #app.started .btn { order: 99; padding: 8px 20px; font-size: .85rem; }
     #app.started #gridPane { order: 1; flex: 0 0 auto; }
-    #app.started .toolbox { order: 2; flex: 0 0 auto; width: 100%; padding: 8px; gap: 8px; align-self: stretch; flex-wrap: nowrap; align-items: flex-start; justify-content: flex-start; }
+    #app.started .toolbox { order: 2; flex: 0 0 auto; width: 100%; padding: 8px; gap: 8px; align-self: stretch; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 6px; }
     #app.started .tool { width: 33px; height: 33px; border-radius: 8px; flex: 0 0 auto; }
     #app.started .tool svg { width: 15px; height: 15px; }
     #app.started .tool.letter { font-size: .9rem; }
-    #app.started .letters { flex: 1 1 0; min-width: 0; margin: 0 0 0 12px; gap: 6px; justify-content: flex-start; }
+    #app.started .letters { display: contents; }
+    #app.started .letters .tool:first-child { margin-left: 12px; }
     #app.started .pane.side { order: 3; flex: 1 1 0; min-height: 0; overflow-y: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
     #app.started .pane.side canvas { flex: 0 0 auto; }
   }
