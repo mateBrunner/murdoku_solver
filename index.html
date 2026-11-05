@@ -54,7 +54,11 @@
   .tool.active { background: rgba(255,255,255,.3); border-color: #fff; box-shadow: 0 0 0 3px #fff, 0 0 18px rgba(255,255,255,.7); }
   .start { display: none; position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); cursor: pointer; border: 0; color: #fff; font-size: 1.6rem; font-weight: 700; letter-spacing: .05em; padding: 18px 80px; border-radius: 999px; background: linear-gradient(135deg, #3ddc84, #1a9f55); box-shadow: 0 10px 30px rgba(61,220,132,.5); }
   .start:hover { filter: brightness(1.1); }
-  #app.done:not(.started) ~ .start { display: block; }
+  #app.done.step1 ~ #next, #app.done.step2:not(.started) ~ #start, #app.done.step2:not(.started) ~ #back { display: block; }
+  #app.done.step1 .pane.side, #app.done.step1 #src2 { display: none; }
+  #app.done.step1 #origPane.two canvas { max-height: 72vh; }
+  #app.done.step2:not(.started) #gridPane { display: none; }
+  .back { display: none; position: fixed; bottom: 36px; left: 24px; }
   #app.started #origPane { display: none; }
   #app.started { max-width: none; gap: 20px; }
   #app.started .pane canvas { max-width: none; max-height: none; }
@@ -64,19 +68,21 @@
 </style>
 </head>
 <body>
-<div id="app" class="empty">
+<div id="app" class="empty step1">
   <label class="btn" id="upload">Upload image<input type="file" id="file" accept="image/*,application/pdf,.pdf"></label>
   <div class="pane side"><canvas id="avatars"></canvas><div class="badge" id="charLabel">Characters</div><label class="btn2" id="charBtn">Upload characters<input type="file" id="charFile" accept="image/*,application/pdf,.pdf"></label></div>
-  <div class="pane" id="origPane"><canvas id="src"></canvas><canvas id="src2" hidden></canvas><div class="badge">Drag the rectangles or their handles to adjust</div></div>
+  <div class="pane" id="origPane"><canvas id="src"></canvas><canvas id="src2" hidden></canvas><div class="badge" id="help"></div></div>
   <div class="toolbox" id="toolbox">
     <button class="tool" data-tool="eraser" title="Eraser" aria-label="Eraser"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9l-5-5a2 2 0 0 1 0-2.8l8.2-8.2a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8L12 20"/><path d="M8 11l6 6"/></svg></button>
     <button class="tool" data-tool="x" title="Mark X" aria-label="Mark X"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
     <button class="tool action" data-tool="clear" title="Clear" aria-label="Clear"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6"/></svg></button>
   <div class="letters" id="letters"></div>
   </div>
- <div class="pane"><canvas id="crop"></canvas><div class="badge" id="info"><input id="rowsIn" type="number" min="1" max="40" aria-label="Rows"> rows × <input id="colsIn" type="number" min="1" max="40" aria-label="Columns"> columns</div></div>
+ <div class="pane" id="gridPane"><canvas id="crop"></canvas><div class="badge" id="info"><input id="rowsIn" type="number" min="1" max="40" aria-label="Rows"> rows × <input id="colsIn" type="number" min="1" max="40" aria-label="Columns"> columns</div></div>
 </div>
+<button class="start" id="next">Next</button>
 <button class="start" id="start">Start</button>
+<label class="btn2 back" id="back">Back</label>
 <div id="msg"></div>
 
 <script src="pdf.min.js"></script>
@@ -128,6 +134,24 @@ function openFile(f, ok) {
     })
     .catch(fail);
 }
+
+const HELP = {
+  1: 'Step 1 of 2: drag the pink rectangle (or its handles) onto the grid, then check the rows and columns',
+  2: 'Step 2 of 2: drag the cyan rectangle (or its handles) around the characters, or upload a characters image'
+};
+function setStep(n) {
+  app.classList.toggle('step1', n === 1);
+  app.classList.toggle('step2', n === 2);
+  $('help').textContent = HELP[n];
+  if (img && rect) { render(); scheduleSave(); }
+}
+$('next').addEventListener('click', () => {
+  if (!grid) { msg.textContent = 'Set the number of rows and columns first.'; return; }
+  msg.textContent = '';
+  setStep(2);
+});
+$('back').addEventListener('click', () => setStep(1));
+setStep(1);
 
 $('start').addEventListener('click', () => {
   app.classList.add('started'); msg.textContent = '';
@@ -388,7 +412,7 @@ function saveState() {
   const f = encode(img).f, fc = charImg ? encode(charImg).f : f;
   const sc = (r, k) => r && { x0: r.x0 * k, y0: r.y0 * k, x1: r.x1 * k, y1: r.y1 * k };
   const st = JSON.stringify({
-    started: app.classList.contains('started'),
+    started: app.classList.contains('started'), step2: app.classList.contains('step2'),
     rect: sc(rect, f), av: sc(av, fc),
     grid: grid && { xs: grid.xs.map(v => v * f), ys: grid.ys.map(v => v * f) },
     marks: [...marks], crosses: [...crosses], bigs: [...bigs]
@@ -406,6 +430,7 @@ function restore() {
   if (!im || !im.img || !st || !st.rect) return;
   Promise.all([loadUrl(im.img), im.chars ? loadUrl(im.chars) : null]).then(([i, ci]) => {
     load(i, st, ci);
+    if (st.step2 || st.started) setStep(2);
     if (!st.started) return;
     app.classList.add('started');
     buildLetters(grid ? Math.min(grid.xs.length, grid.ys.length) - 1 : 0);
@@ -423,6 +448,7 @@ function load(im, st, ci) {
   charImg = null; src2.hidden = true; $('origPane').classList.remove('two');
   if (ci) setChars(ci);
   app.classList.remove('started'); fitStarted();
+  setStep(1);
   msg.textContent = '';
   scale = Math.min(1, 800 / Math.max(im.width, im.height));
   const w = Math.round(im.width * scale), h = Math.round(im.height * scale);
@@ -517,7 +543,8 @@ function render() {
   sctx.drawImage(img, 0, 0);
   const lw = Math.max(3, img.width / 200), hs = lw * 3;
   sctx.lineWidth = lw;
-  for (const [r, color] of [[rect, '#ff3d8b'], [charImg ? null : av, '#35d0ff']]) {
+  const step2 = app.classList.contains('step2');
+  for (const [r, color] of [[step2 ? null : rect, '#ff3d8b'], [charImg || !step2 ? null : av, '#35d0ff']]) {
     if (!r) continue;
     drawRect(sctx, r, color, lw, hs);
   }
@@ -747,7 +774,8 @@ function pointer(e, cv = src) {
 // Returns {which: 'grid'|'av', mode} for the handle/body under the pointer.
 function hit(px, py, only, width = img.width) {
   const tol = Math.max(14, width / 40);
-  const items = [['av', charImg && !only ? null : av], ['grid', only ? null : rect]].filter(([, r]) => r);
+  const step2 = app.classList.contains('step2');
+  const items = [['av', only || (step2 && !charImg) ? av : null], ['grid', !only && !step2 ? rect : null]].filter(([, r]) => r);
   for (const [which, r] of items) {
     const hs = handles(r);
     for (let i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i][0], py - hs[i][1]) <= tol) return { which, mode: MODES[i] };
