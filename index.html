@@ -73,7 +73,7 @@
     #app.empty { align-items: center; justify-content: center; min-height: calc(100dvh - 130px); }
     .pane, .pane.side { flex: 0 0 auto; }
     .pane canvas { max-height: 30vh; }
-    #app.done .btn { position: static; align-self: flex-start; padding: 8px 18px; font-size: .9rem; }
+    #app.done .btn { position: static; order: 99; align-self: center; padding: 10px 24px; font-size: .95rem; }
     #app.done.step2:not(.started) #origPane { order: 1; }
     #app.done.step2:not(.started) .pane.side { order: 2; }
     .badge { font-size: .9rem; padding: 8px 16px; border-radius: 18px; text-align: center; }
@@ -84,7 +84,7 @@
     /* After Start: grid on top, buttons below it, characters below (the only scrollable part). */
     body:has(#app.started) { padding: 8px; height: 100dvh; overflow: hidden; }
     #app.started { height: calc(100dvh - 16px); overflow: hidden; gap: 8px; max-width: none; }
-    #app.started .btn { display: none; }
+    #app.started .btn { padding: 8px 20px; font-size: .85rem; }
     #app.started #gridPane { order: 1; flex: 0 0 auto; }
     #app.started .toolbox { order: 2; flex: 0 0 auto; width: 100%; padding: 8px; gap: 8px; align-self: stretch; }
     #app.started .letters { flex: 1 1 100%; margin-top: 0; gap: 8px; }
@@ -95,7 +95,7 @@
 </head>
 <body>
 <div id="app" class="empty step1">
-  <label class="btn" id="upload">Upload image<input type="file" id="file" accept="image/*,application/pdf,.pdf"></label>
+  <label class="btn" id="upload">Start new game<input type="file" id="file" accept="image/*,application/pdf,.pdf"></label>
   <div class="pane side"><canvas id="avatars"></canvas><div class="badge" id="charLabel">Characters</div><label class="btn2" id="charBtn">Upload characters<input type="file" id="charFile" accept="image/*,application/pdf,.pdf"></label></div>
   <div class="pane" id="origPane"><canvas id="src"></canvas><canvas id="src2" hidden></canvas><div class="badge" id="help"></div></div>
   <div class="toolbox" id="toolbox">
@@ -181,6 +181,7 @@ setStep(1);
 
 $('start').addEventListener('click', () => {
   app.classList.add('started'); msg.textContent = '';
+  view = { z: 1, ox: 0, oy: 0 };
   buildLetters(grid ? Math.min(grid.xs.length, grid.ys.length) - 1 : 0);
   render();
   fitStarted();
@@ -223,13 +224,60 @@ document.addEventListener('keydown', e => {
 
 let cropScale = 1;        // canvas pixels per image pixel of the right picture (keeps text crisp when enlarged)
 
+// Pinch zoom (mobile, after Start): the picture stays in place and only its content is zoomed/panned.
+let view = { z: 1, ox: 0, oy: 0 };   // zoom factor and top-left of the visible part, in crop pixels
+
 function cellAt(e) {
-  const [px, py] = pointer(e, crop), x = px / cropScale + rect.x0, y = py / cropScale + rect.y0;
+  const [px, py] = pointer(e, crop), x = px / cropScale / view.z + view.ox + rect.x0, y = py / cropScale / view.z + view.oy + rect.y0;
   const c = grid.xs.findIndex((v, i) => i < grid.xs.length - 1 && x >= v && x < grid.xs[i + 1]);
   const r = grid.ys.findIndex((v, i) => i < grid.ys.length - 1 && y >= v && y < grid.ys[i + 1]);
   return c >= 0 && r >= 0 ? { c, r } : null;
 }
 
+const touches = new Map();
+let pinch = null, pinchLock = false, pinchEnd = 0;
+function pinchGeom() {
+  const [a, b] = [...touches.values()];
+  return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+}
+crop.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch' || !app.classList.contains('started')) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2) {
+    cancelHold(); erasing = false; paintStart = null; painted = false; longFired = false; pinchLock = true;
+    const r = crop.getBoundingClientRect(), g = pinchGeom(), k = (rect.x1 - rect.x0) / r.width;
+    pinch = { d0: g.d, z0: view.z, px: view.ox + (g.mx - r.left) * k / view.z, py: view.oy + (g.my - r.top) * k / view.z };
+  }
+  if (pinchLock) e.stopImmediatePropagation();
+}, true);
+crop.addEventListener('pointermove', e => {
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (!pinchLock) return;
+  e.stopImmediatePropagation();
+  if (!pinch || touches.size < 2) return;
+  const r = crop.getBoundingClientRect(), g = pinchGeom(), w = rect.x1 - rect.x0, h = rect.y1 - rect.y0, k = w / r.width;
+  const z = Math.min(4, Math.max(1, pinch.z0 * g.d / pinch.d0));
+  view = {
+    z,
+    ox: Math.min(Math.max(0, pinch.px - (g.mx - r.left) * k / z), w - w / z),
+    oy: Math.min(Math.max(0, pinch.py - (g.my - r.top) * k / z), h - h / z)
+  };
+  renderCrop();
+}, true);
+const endTouch = e => {
+  if (!touches.delete(e.pointerId) || !pinchLock) return;
+  pinchEnd = performance.now();
+  e.stopImmediatePropagation();
+  if (touches.size < 2) pinch = null;
+  if (!touches.size) pinchLock = false;
+};
+crop.addEventListener('pointerup', endTouch, true);
+crop.addEventListener('pointercancel', endTouch, true);
+// A pinch must not end in a tap that toggles a cell.
+crop.addEventListener('click', e => {
+  if (performance.now() - pinchEnd < 500) { e.stopImmediatePropagation(); e.preventDefault(); }
+}, true);
 crop.addEventListener('pointermove', e => {
   if (!grid || selected === null || !app.classList.contains('started')) { crop.style.cursor = 'default'; return; }
   let next = cellAt(e);
@@ -473,6 +521,7 @@ function restore() {
 
 function load(im, st, ci) {
   img = im;
+  view = { z: 1, ox: 0, oy: 0 };
   charImg = null; src2.hidden = true; $('origPane').classList.remove('two');
   if (ci) setChars(ci);
   app.classList.remove('started'); fitStarted();
@@ -651,7 +700,7 @@ function renderCrop() {
   cctx.setTransform(1, 0, 0, 1, 0, 0);
   cctx.clearRect(0, 0, crop.width, crop.height);
   cctx.setTransform(cropScale, 0, 0, cropScale, 0, 0);
-  cctx.imageSmoothingQuality = 'high';
+  if (view.z > 1 && app.classList.contains('started')) { cctx.scale(view.z, view.z); cctx.translate(-view.ox, -view.oy); }  cctx.imageSmoothingQuality = 'high';
   cctx.drawImage(img, rect.x0, rect.y0, w, h, 0, 0, w, h);
   if (grid && hover && selected && (selected.hue !== null || selected.eraser || selected.x)) {
     cctx.fillStyle = selected.hue !== null ? `hsla(${selected.hue}, 85%, 60%, 0.3)` : 'rgba(255,255,255,0.35)';
