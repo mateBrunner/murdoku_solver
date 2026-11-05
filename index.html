@@ -74,6 +74,7 @@
   .dopt:hover { background: rgba(255,255,255,.25); }
   .dopt small { display: block; font-weight: 400; opacity: .7; margin-top: 2px; }
   .dopt.dback { text-align: center; }
+  .durl { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.12); color: #fff; outline: none; }
   /* Mobile layout */
   #crop { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   @media (max-width: 800px) {
@@ -159,7 +160,30 @@ function dlgTitle(t) { const h = document.createElement('h3'); h.textContent = t
 function sourceMenu() {
   showDialog([dlgTitle('Start new game'),
     dlgBtn('Photo / Camera', () => { closeDialog(); $('file').click(); }),
-    dlgBtn('Murdoku', puzzleMenu, 'Puzzles from murdoku.com')]);
+    dlgBtn('Murdoku', puzzleMenu, 'Puzzles from murdoku.com'),
+    dlgBtn('URL', urlMenu, 'Image or PDF from a web address')]);
+}
+function urlMenu() {
+  const input = document.createElement('input');
+  input.type = 'url'; input.placeholder = 'https://…'; input.className = 'durl';
+  const status = document.createElement('p');
+  const go = dlgBtn('Load', () => {
+    const u = input.value.trim();
+    if (!u) return;
+    status.textContent = 'Downloading…';
+    fetch(u).then(r => { if (!r.ok) throw 0; return r.blob(); }).then(b => {
+      const pdf = b.type === 'application/pdf' || /\.pdf(\?|#|$)/i.test(u);
+      const name = pdf ? 'download.pdf' : 'download.img';
+      closeDialog();
+      openFile(new File([b], name, { type: pdf ? 'application/pdf' : b.type || 'image/png' }), im => load(limit(im)));
+    }).catch(() => { status.textContent = 'Could not download it. The site may block direct downloads (CORS) – save the image and use Photo / Camera instead.'; });
+  });
+  go.classList.add('dback');
+  const back = dlgBtn('← Back', sourceMenu);
+  back.classList.add('dback');
+  showDialog([dlgTitle('Image URL'), input, go, status, back]);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') go.click(); });
+  input.focus();
 }
 function puzzleMenu() {
   const wait = document.createElement('p');
