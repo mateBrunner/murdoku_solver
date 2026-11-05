@@ -73,7 +73,7 @@
     #app.empty { align-items: center; justify-content: center; min-height: calc(100dvh - 130px); }
     .pane, .pane.side { flex: 0 0 auto; }
     .pane canvas { max-height: 30vh; }
-    #app.done .btn { position: static; order: 99; align-self: center; padding: 10px 24px; font-size: .95rem; }
+    #app.done .btn { position: static; order: 0; align-self: center; padding: 10px 24px; font-size: .95rem; }
     #app.done.step2:not(.started) #origPane { order: 1; }
     #app.done.step2:not(.started) .pane.side { order: 2; }
     .badge { font-size: .9rem; padding: 8px 16px; border-radius: 18px; text-align: center; }
@@ -84,7 +84,7 @@
     /* After Start: grid on top, buttons below it, characters below (the only scrollable part). */
     body:has(#app.started) { padding: 8px; height: 100dvh; overflow: hidden; }
     #app.started { height: calc(100dvh - 16px); overflow: hidden; gap: 8px; max-width: none; }
-    #app.started .btn { padding: 8px 20px; font-size: .85rem; }
+    #app.started .btn { order: 99; padding: 8px 20px; font-size: .85rem; }
     #app.started #gridPane { order: 1; flex: 0 0 auto; }
     #app.started .toolbox { order: 2; flex: 0 0 auto; width: 100%; padding: 8px; gap: 8px; align-self: stretch; }
     #app.started .letters { flex: 1 1 100%; margin-top: 0; gap: 8px; }
