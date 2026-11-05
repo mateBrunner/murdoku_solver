@@ -133,7 +133,7 @@ let drag = null;          // {mode, startX, startY, orig}
 $('file').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
-  openFile(f, load);
+  openFile(f, im => load(limit(im)));
   e.target.value = '';
 });
 
@@ -463,6 +463,16 @@ document.querySelector('[data-tool="clear"]').addEventListener('click', () => {
   renderCrop();
 });
 
+// Big photos make every redraw slow (especially on phones), so work on a downscaled copy.
+function limit(im, max = 1800) {
+  const s = Math.min(1, max / Math.max(im.width, im.height));
+  if (s === 1) return im;
+  const c = document.createElement('canvas');
+  c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  return c;
+}
+
 // Persistence: images (downscaled JPEG) in one key, the small state in another.
 const IMG_KEY = 'murdoku.images', STATE_KEY = 'murdoku.state';
 const encCache = new WeakMap();
@@ -624,7 +634,7 @@ const COARSE = matchMedia('(pointer: coarse)'), MOBILE = matchMedia('(max-width:
 // Converts a size in CSS pixels to the canvas' own pixels, so touch targets keep their on-screen size.
 function cssPx(cv, n) { return cv.clientWidth ? n * cv.width / cv.clientWidth : n; }
 
-function render() {
+function render(only) {
   sctx.drawImage(img, 0, 0);
   const lw = Math.max(3, img.width / 200), hs = Math.max(lw * 3, cssPx(src, COARSE.matches ? 14 : 8));
   sctx.lineWidth = lw;
@@ -638,13 +648,21 @@ function render() {
     const l2 = Math.max(3, charImg.width / 200);
     drawRect(s2ctx, av, '#35d0ff', l2, Math.max(l2 * 3, cssPx(src2, COARSE.matches ? 14 : 8)));
   }
-  if (av) {
+  if (av && only !== 'grid') {
     const aw = Math.max(1, Math.round(av.x1 - av.x0)), ah = Math.max(1, Math.round(av.y1 - av.y0));
     avc.width = aw; avc.height = ah;
     actx.drawImage(charImg || img, av.x0, av.y0, aw, ah, 0, 0, aw, ah);
   }
-  renderCrop();
+  if (only !== 'av') renderCrop();
 }
+
+// Coalesces drag redraws to one per animation frame (touch screens fire many more events than frames).
+let soonFn = null, soonId = 0;
+function soon(fn) {
+  soonFn = fn;
+  if (!soonId) soonId = requestAnimationFrame(() => { soonId = 0; const f = soonFn; soonFn = null; if (f) f(); });
+}
+function flushSoon() { cancelAnimationFrame(soonId); soonId = 0; soonFn = null; }
 
 let highlightLetter = null; // letter whose small marks are highlighted while its button is hovered
 let hover = null;         // {c, r} grid cell under the pointer on the right picture
@@ -699,6 +717,8 @@ function renderCrop() {
   // Render at the displayed size so letters stay sharp; all drawing below uses image pixels.
   const shown = parseFloat(crop.style.width) || w;
   cropScale = Math.min(Math.max(1, shown / w * (window.devicePixelRatio || 1)), 4096 / Math.max(w, h));
+  // While the grid rectangle is dragged its size changes every frame, so keep the preview small and cheap.
+  if (drag && drag.which === 'grid') cropScale = Math.min(cropScale, 400 / Math.max(w, h));
   const cw0 = Math.round(w * cropScale), ch0 = Math.round(h * cropScale);
   if (crop.width !== cw0 || crop.height !== ch0) { crop.width = cw0; crop.height = ch0; }
   cctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -830,9 +850,9 @@ crop.addEventListener('pointermove', e => {
   if (m.includes('s')) y1 = Math.max(Math.min(rect.y1, y1 + dy), y0 + min);
   const { xs, ys } = gridDrag.base;
   grid = { xs: xs.map(v => x0 + (v - o.x0) / (o.x1 - o.x0) * (x1 - x0)), ys: ys.map(v => y0 + (v - o.y0) / (o.y1 - o.y0) * (y1 - y0)) };
-  renderCrop();
+  soon(renderCrop);
 });
-const endGridDrag = () => { gridDrag = null; };
+const endGridDrag = () => { if (!gridDrag) return; gridDrag = null; flushSoon(); renderCrop(); };
 crop.addEventListener('pointerup', endGridDrag);
 crop.addEventListener('pointercancel', endGridDrag);
 
@@ -906,7 +926,8 @@ src.addEventListener('pointermove', e => {
   if (!drag) { const h = rect && hit(px, py); src.style.cursor = h ? CURSORS[h.mode] : 'default'; return; }
   const r = dragRect(drag.orig, drag.mode, px - drag.px, py - drag.py, img.width, img.height);
   if (drag.which === 'av') av = r; else rect = r;
-  render();
+  const which = drag.which;
+  soon(() => render(which));
 });
 
 // Characters image: only the cyan rectangle is editable.
@@ -922,10 +943,11 @@ src2.addEventListener('pointermove', e => {
   const [px, py] = pointer(e, src2);
   if (!drag2) { const h = hit(px, py, 'av', charImg.width); src2.style.cursor = h ? CURSORS[h.mode] : 'default'; return; }
   av = dragRect(drag2.orig, drag2.mode, px - drag2.px, py - drag2.py, charImg.width, charImg.height);
-  render();
+  soon(() => render('av'));
 });
-src2.addEventListener('pointerup', () => { drag2 = null; });
-src2.addEventListener('pointercancel', () => { drag2 = null; });
+const endDrag2 = () => { if (!drag2) return; drag2 = null; flushSoon(); render(); };
+src2.addEventListener('pointerup', endDrag2);
+src2.addEventListener('pointercancel', endDrag2);
 
 function setChars(im) {
   charImg = im;
@@ -937,6 +959,7 @@ $('charFile').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f || !img) return;
   openFile(f, im => {
+    im = limit(im);
     setChars(im);
     av = { x0: 0, y0: 0, x1: im.width, y1: im.height };
     render();
@@ -949,6 +972,8 @@ function endDrag() {
   if (!drag) return;
   const which = drag.which;
   drag = null;
+  flushSoon();
+  if (which === 'av') render();
   if (which === 'grid') analyze([rect.x0, rect.y0, rect.x1, rect.y1], false);
 }
 src.addEventListener('pointerup', endDrag);
