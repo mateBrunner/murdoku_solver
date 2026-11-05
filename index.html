@@ -65,6 +65,32 @@
   #app.started .pane.side { flex: 1 1 0; }
   #msg { position: fixed; bottom: 100px; left: 0; right: 0; text-align: center; opacity: .85; }
   input[type=file] { display: none; }
+  /* Mobile layout */
+  #crop { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  @media (max-width: 800px) {
+    body { padding: 10px 10px 120px; align-items: flex-start; }
+    #app { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 14px; }
+    #app.empty { align-items: center; justify-content: center; min-height: calc(100dvh - 130px); }
+    .pane, .pane.side { flex: 0 0 auto; }
+    .pane canvas { max-height: 30vh; }
+    #app.done .btn { position: static; align-self: flex-start; padding: 8px 18px; font-size: .9rem; }
+    #app.done.step2:not(.started) #origPane { order: 1; }
+    #app.done.step2:not(.started) .pane.side { order: 2; }
+    .badge { font-size: .9rem; padding: 8px 16px; border-radius: 18px; text-align: center; }
+    .start { font-size: 1.3rem; padding: 14px 56px; bottom: 16px; }
+    .back { bottom: auto; top: 12px; left: auto; right: 12px; }
+    #msg { bottom: 80px; padding: 0 12px; }
+
+    /* After Start: grid on top, buttons below it, characters below (the only scrollable part). */
+    body:has(#app.started) { padding: 8px; height: 100dvh; overflow: hidden; }
+    #app.started { height: calc(100dvh - 16px); overflow: hidden; gap: 8px; max-width: none; }
+    #app.started .btn { display: none; }
+    #app.started #gridPane { order: 1; flex: 0 0 auto; }
+    #app.started .toolbox { order: 2; flex: 0 0 auto; width: 100%; padding: 8px; gap: 8px; align-self: stretch; }
+    #app.started .letters { flex: 1 1 100%; margin-top: 0; gap: 8px; }
+    #app.started .pane.side { order: 3; flex: 1 1 0; min-height: 0; overflow-y: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
+    #app.started .pane.side canvas { flex: 0 0 auto; }
+  }
 </style>
 </head>
 <body>
@@ -166,7 +192,9 @@ function fitStarted() {
     if (!app.classList.contains('started')) { cv.style.width = cv.style.height = ''; continue; }
     const lw = cv === crop ? Math.max(1, Math.round(rect.x1 - rect.x0)) : cv.width;
     const lh = cv === crop ? Math.max(1, Math.round(rect.y1 - rect.y0)) : cv.height;
-    const s = Math.min(cv.parentElement.clientWidth / lw, window.innerHeight * 0.92 / lh);
+    // Mobile: the grid must fit fully on top; the characters only fit the width (their pane scrolls).
+    const maxH = MOBILE.matches ? (cv === crop ? window.innerHeight * 0.5 : Infinity) : window.innerHeight * 0.92;
+    const s = Math.min(cv.parentElement.clientWidth / lw, maxH / lh);
     cv.style.width = Math.floor(lw * s) + 'px';
     cv.style.height = Math.floor(lh * s) + 'px';
   }
@@ -539,9 +567,13 @@ function analyze(box, snap = true) {
   render();
 }
 
+const COARSE = matchMedia('(pointer: coarse)'), MOBILE = matchMedia('(max-width: 800px)');
+// Converts a size in CSS pixels to the canvas' own pixels, so touch targets keep their on-screen size.
+function cssPx(cv, n) { return cv.clientWidth ? n * cv.width / cv.clientWidth : n; }
+
 function render() {
   sctx.drawImage(img, 0, 0);
-  const lw = Math.max(3, img.width / 200), hs = lw * 3;
+  const lw = Math.max(3, img.width / 200), hs = Math.max(lw * 3, cssPx(src, COARSE.matches ? 14 : 8));
   sctx.lineWidth = lw;
   const step2 = app.classList.contains('step2');
   for (const [r, color] of [[step2 ? null : rect, '#ff3d8b'], [charImg || !step2 ? null : av, '#35d0ff']]) {
@@ -551,7 +583,7 @@ function render() {
   if (charImg) {
     s2ctx.drawImage(charImg, 0, 0);
     const l2 = Math.max(3, charImg.width / 200);
-    drawRect(s2ctx, av, '#35d0ff', l2, l2 * 3);
+    drawRect(s2ctx, av, '#35d0ff', l2, Math.max(l2 * 3, cssPx(src2, COARSE.matches ? 14 : 8)));
   }
   if (av) {
     const aw = Math.max(1, Math.round(av.x1 - av.x0)), ah = Math.max(1, Math.round(av.y1 - av.y0));
@@ -703,7 +735,7 @@ function renderCrop() {
     for (const y of grid.ys) { cctx.moveTo(grid.xs[0] - rect.x0, y - rect.y0); cctx.lineTo(grid.xs[grid.xs.length - 1] - rect.x0, y - rect.y0); }
     cctx.stroke();
     const gx0 = grid.xs[0] - rect.x0, gy0 = grid.ys[0] - rect.y0, gx1 = grid.xs[grid.xs.length - 1] - rect.x0, gy1 = grid.ys[grid.ys.length - 1] - rect.y0;
-    const hs = Math.max(4, w / 110);
+    const k = w / (crop.clientWidth || w), hs = Math.max(4, w / 110, COARSE.matches ? 10 * k : 0);
     cctx.fillStyle = '#fff'; cctx.strokeStyle = '#90ee90'; cctx.lineWidth = Math.max(1.5, w / 400);
     for (const [hx, hy] of handles({ x0: gx0, y0: gy0, x1: gx1, y1: gy1 })) {
       cctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
@@ -717,7 +749,7 @@ let gridDrag = null;
 function gridHit(e) {
   const [px, py] = pointer(e, crop), x = px / cropScale + rect.x0, y = py / cropScale + rect.y0;
   const o = { x0: grid.xs[0], y0: grid.ys[0], x1: grid.xs[grid.xs.length - 1], y1: grid.ys[grid.ys.length - 1] };
-  const tol = Math.max(8, (rect.x1 - rect.x0) / 40);
+  const tol = Math.max(8, (rect.x1 - rect.x0) / 40, (rect.x1 - rect.x0) / (crop.clientWidth || 1) * (COARSE.matches ? 26 : 10));
   const hs = handles(o);
   for (let i = 0; i < hs.length; i++) if (Math.hypot(x - hs[i][0], y - hs[i][1]) <= tol) return { mode: MODES[i], o, x, y };
   const inX = x >= o.x0 - tol && x <= o.x1 + tol, inY = y >= o.y0 - tol && y <= o.y1 + tol;
@@ -773,12 +805,16 @@ function pointer(e, cv = src) {
 
 // Returns {which: 'grid'|'av', mode} for the handle/body under the pointer.
 function hit(px, py, only, width = img.width) {
-  const tol = Math.max(14, width / 40);
+  const big = Math.max(14, width / 40, cssPx(only ? src2 : src, COARSE.matches ? 28 : 14));
   const step2 = app.classList.contains('step2');
   const items = [['av', only || (step2 && !charImg) ? av : null], ['grid', !only && !step2 ? rect : null]].filter(([, r]) => r);
   for (const [which, r] of items) {
+    // On small rectangles keep the handle zones small enough to leave room for moving.
+    const tol = Math.min(big, Math.max(10, Math.min(r.x1 - r.x0, r.y1 - r.y0) / 3));
     const hs = handles(r);
-    for (let i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i][0], py - hs[i][1]) <= tol) return { which, mode: MODES[i] };
+    let best = -1, bd = tol;
+    for (let i = 0; i < hs.length; i++) { const d = Math.hypot(px - hs[i][0], py - hs[i][1]); if (d <= bd) { bd = d; best = i; } }
+    if (best >= 0) return { which, mode: MODES[best] };
   }
   for (const [which, r] of items) {
     if (px > r.x0 && px < r.x1 && py > r.y0 && py < r.y1) return { which, mode: 'move' };
